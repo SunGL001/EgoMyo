@@ -31,6 +31,8 @@ def parse():
     parser.add_argument('--data', type=Path, required=True,
                         help='Dataset root with membership.json and normalization.json')
     parser.add_argument('--splits', type=Path, required=True, help='splits.json')
+    parser.add_argument('--normalization', type=Path,
+                        help='Train-only normalization JSON for this protocol; defaults to <data>/normalization.json')
     parser.add_argument('--protocol', required=True,
                         choices=('cross_trial', 'cross_session', 'cross_subject'))
     parser.add_argument('--mano', type=Path, required=True, help='MANO buffer archive')
@@ -61,6 +63,12 @@ def main():
     train_ids = splits['protocols'][args.protocol]['train']
     if args.limit_trials:
         train_ids = train_ids[:args.limit_trials]
+    normalization_path = args.normalization or args.data / 'normalization.json'
+    normalization = read_json(normalization_path)
+    normalization_protocol = normalization.get('protocol')
+    if normalization_protocol and normalization_protocol != args.protocol:
+        raise ValueError(f'Normalization was computed for {normalization_protocol}, '
+                         f'not requested protocol {args.protocol}')
 
     mano = EmbeddedMANO.from_npz(args.mano).to(device)
     partition = load_partition(args.partition)
@@ -75,7 +83,8 @@ def main():
         groups.append(dict(params=adapter, lr=args.adapter_lr, base_lr=args.adapter_lr))
     optimizer = torch.optim.AdamW(groups, weight_decay=args.weight_decay)
 
-    data = TrialDataset(args.data, train_ids, visual=args.visual)
+    data = TrialDataset(args.data, train_ids, visual=args.visual,
+                        normalization=normalization)
     sampler = TrialBlockBatches(data, args.batch, args.seed, args.block)
     loader = DataLoader(data, batch_sampler=sampler, num_workers=args.workers,
                         collate_fn=collate, pin_memory=device == 'cuda',
@@ -85,7 +94,9 @@ def main():
     metadata = dict(protocol=args.protocol, seed=args.seed, visual=args.visual,
                     epochs=args.epochs, batch=args.batch, lr=args.lr,
                     weight_decay=args.weight_decay, train_trials=len(train_ids),
-                    train_frames=len(data))
+                    train_frames=len(data),
+                    normalization_file=str(normalization_path),
+                    normalization_protocol=normalization_protocol or 'unspecified')
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / 'train_config.json').write_text(json.dumps(metadata, indent=2))
 

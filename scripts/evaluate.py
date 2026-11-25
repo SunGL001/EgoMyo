@@ -30,6 +30,8 @@ def parse():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', type=Path, required=True)
     parser.add_argument('--splits', type=Path, required=True)
+    parser.add_argument('--normalization', type=Path,
+                        help='Same train-only normalization JSON used during training; defaults to <data>/normalization.json')
     parser.add_argument('--protocol', required=True,
                         choices=('cross_trial', 'cross_session', 'cross_subject'))
     parser.add_argument('--mano', type=Path, required=True)
@@ -51,6 +53,12 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     splits = read_json(args.splits)
     test_ids = splits['protocols'][args.protocol]['test']
+    normalization_path = args.normalization or args.data / 'normalization.json'
+    normalization = read_json(normalization_path)
+    normalization_protocol = normalization.get('protocol')
+    if normalization_protocol and normalization_protocol != args.protocol:
+        raise ValueError(f'Normalization was computed for {normalization_protocol}, '
+                         f'not requested protocol {args.protocol}')
 
     mano = EmbeddedMANO.from_npz(args.mano).to(device)
     partition = load_partition(args.partition)
@@ -66,7 +74,8 @@ def main():
 
     near = geodesic_neighborhood(mano.v_template.cpu().numpy(), mano.faces_tensor.cpu().numpy())
     metrics = Metrics(partition, near, device)
-    data = TrialDataset(args.data, test_ids, visual=args.visual)
+    data = TrialDataset(args.data, test_ids, visual=args.visual,
+                        normalization=normalization)
     loader = DataLoader(data, batch_size=args.batch, sampler=range(len(data)),
                         num_workers=args.workers, collate_fn=collate,
                         pin_memory=device == 'cuda')
@@ -91,6 +100,8 @@ def main():
     result = dict(complete=True, protocol=args.protocol, seed=args.seed,
                   visual=args.visual, checkpoint_epoch=saved['epoch'],
                   weights='raw final epoch', selection_by_test=False,
+                  normalization_file=str(normalization_path),
+                  normalization_protocol=normalization_protocol or 'unspecified',
                   coverage=dict(frames=frames, trials=len(data.trials)),
                   metrics=metrics.result())
     args.out.parent.mkdir(parents=True, exist_ok=True)

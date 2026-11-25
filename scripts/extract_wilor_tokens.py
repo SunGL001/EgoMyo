@@ -37,12 +37,14 @@ def main():
                         help='Directory with <trial_id>/wilor.npy crops')
     parser.add_argument('--adapter', type=Path, required=True)
     parser.add_argument('--checkpoint', type=Path, required=True)
+    parser.add_argument('--config', type=Path, required=True,
+                        help='Official WiLoR model_config.yaml')
     parser.add_argument('--batch', type=int, default=128)
     parser.add_argument('--device', default='cuda')
     args = parser.parse_args()
 
     adapter = load_adapter(args.adapter)
-    extract = adapter.load(args.checkpoint, device=args.device)
+    extract = adapter.load(args.checkpoint, config=args.config, device=args.device)
     membership = json.loads((args.data / 'membership.json').read_text())
     out = args.data / 'features' / 'wilor'
     out.mkdir(parents=True, exist_ok=True)

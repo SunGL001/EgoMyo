@@ -99,7 +99,8 @@ data/egomyo/
 ```
 
 `membership.json` records anonymized trial IDs and split metadata;
-`normalization.json` contains TRAIN-only mean/std for 18 EMG channels;
+`normalization.json` (or a protocol-specific file passed with `--normalization`)
+contains TRAIN-only mean/std for 18 EMG channels;
 `splits.json` freezes the three protocols. Each target archive contains aligned
 EMG windows, pose/mesh, regional and vertex contact/force targets, validity
 masks and handedness. The loader expects 400-sample EMG windows, 21 joints,
@@ -111,9 +112,14 @@ required per-trial files and feature shapes. A source/acquisition archive must
 first be transformed and reviewed against this documented export schema; do
 not point training scripts at the raw acquisition package. The release
 checklist and an unapproved dataset-card draft are in `docs/`.
+For the exact input/target field mapping, masks, loss terms and preprocessing,
+see [`docs/data-field-mapping.md`](docs/data-field-mapping.md).
 
 Once validated, train as shown below. For reproducibility, record the dataset
 revision/commit shown on the Hugging Face dataset page with each experiment.
+Compute a separate normalization file from each protocol's training partition
+and pass that same file to both training and evaluation. The CLI rejects a
+normalization file whose recorded protocol differs from the requested split.
 
 Training uses BF16 autocast and MATH SDPA on CUDA. The code also runs on CPU in
 FP32, which is useful for the unit tests but not for full training.
@@ -160,18 +166,26 @@ observed frame, root-relative `mesh` `[778, 3]` and `joints` `[21, 3]` in metres
 `mesh_valid`, `joint_valid`, `force_valid`, `contact_valid`, `surface_valid`,
 `distribution_valid`, plus `input_valid` and `is_left`.
 
-Feature extraction is optional if the release already ships cached features.
-WiLoR is third party software. Install it from its official repository and point
-`--adapter` at a module implementing the interface in
-`third_party/wilor_adapter.py`:
+If you have the licensed raw videos and the reviewed target-frame mapping, the
+WiLoR cache can be regenerated from MP4 using the official WiLoR detector and
+preprocessing pipeline (external WiLoR code and checkpoints are not included):
 
 ```bash
-python scripts/extract_wilor_tokens.py --data <data> --crops <data>/crops \
-  --adapter third_party/wilor_adapter.py --checkpoint /path/to/wilor.ckpt
+python scripts/extract_wilor_from_video.py \
+  --data data/egomyo --frame-map /path/to/reviewed-frame-map.json \
+  --wilor-root /path/to/WiLoR --checkpoint /path/to/wilor_final.ckpt \
+  --config /path/to/model_config.yaml --detector /path/to/detector.pt
 ```
 
-The optional DINOv2 variant uses `scripts/extract_dino_features.py` and is not
-used by the default configuration.
+The frame map explicitly specifies the zero-based video frame corresponding to
+each target row and the hand side. The script refuses missing/ambiguous hand
+detections and never uses ground-truth pose to make crops. It writes
+`features/wilor/<trial_id>.npy` plus checkpoint/preprocessing provenance.
+Review [`docs/data-field-mapping.md`](docs/data-field-mapping.md) for the frame
+map schema and synchronization requirements. This produces visual features
+only; it does not convert raw EMG/pose/pressure files into `targets/*.npz`.
+The optional DINOv2 extractor remains crop-based and is not used by the default
+configuration.
 
 ## Splits
 

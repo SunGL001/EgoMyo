@@ -47,12 +47,24 @@ shapes in the code repository's [README](https://github.com/SunGL001/EgoMyo).
 The training loader does not automatically convert an acquisition/source
 package into that export.
 
+Complete the code repository's
+[`data-field-mapping.md`](https://github.com/SunGL001/EgoMyo/blob/main/docs/data-field-mapping.md)
+against this exact dataset revision. In particular, publish the electrode
+names/order, EMG/video timebases and alignment, crop/color/normalization
+procedure, seven-region name/order, coordinate frames, force derivation and
+calibration status, mask semantics, MANO/partition version, and file hashes.
+The model code fixes tensor shapes but does not define those acquisition
+semantics. State which stored fields are model inputs and which are training
+targets; do not describe cached features or labels as raw sensor measurements.
+
 ## Splits and evaluation
 
 TODO — publish the split-generation version and exact protocol definitions.
 Explain the grouping unit and demonstrate that participants do not leak across
-the cross-subject split. State whether any public benchmark results used the
-released test labels.
+the cross-subject split. Document which target-validity masks apply to each
+loss/metric, whether `input_valid` filters examples or only normalization, and
+the exact normalization protocol. State whether any public benchmark results
+used the released test labels.
 
 ## Privacy, consent and limitations
 
