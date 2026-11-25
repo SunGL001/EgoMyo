@@ -55,7 +55,8 @@ surface labels. It does not substitute completed preview geometry for original
 MANO labels. Original source recordings remain intact; estimates must not be
 described as calibrated force measurements. Publish the completion configuration,
 source references, release membership and conversion receipts with the approved
-release. Keep original pressure files beside completed H5 virtual datasets.
+release. For pressure2-only releases, materialize completed virtual datasets and
+embed the surface atlas hash so older pressure/contact files are not required.
 
 The code repository also provides
 [`baselines/`](https://github.com/SunGL001/EgoMyo/tree/main/baselines)

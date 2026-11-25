@@ -76,15 +76,32 @@ downloads the dataset.
 pip install -r requirements.txt
 hf auth login
 python scripts/download_dataset.py --local-dir data/egomyo
-python scripts/validate_dataset.py --data data/egomyo --visual wilor
+mkdir -p data/egomyo-raw
+for archive in data/egomyo/data/raw/*.tar; do
+  tar -xf "$archive" -C data/egomyo-raw
+done
+python scripts/prepare_targets.py --source-root data/egomyo-raw \
+  --membership data/egomyo/metadata/membership.json \
+  --out data/egomyo-prepared --include-long-emg
+cp data/egomyo/metadata/splits.json data/egomyo-prepared/splits.json
 ```
 
 To fetch only selected files from the Hub, repeat `--allow-pattern`:
 
 ```bash
 python scripts/download_dataset.py --local-dir data/egomyo \
-  --allow-pattern README.md --allow-pattern membership.json
+  --allow-pattern README.md --allow-pattern 'metadata/*' \
+  --allow-pattern 'data/raw/0929-1-L.tar' --allow-pattern release.json
 ```
+
+The public 100-hand release contains **pressure2 only**, in standalone HDF5
+files without older pressure/contact-force dependencies. Check the Hub's
+`release.json` for upload completeness, and verify archive SHA-256 values from
+`metadata/packages/` before extraction. Extract all selected archives into the
+same raw root. Frozen metadata/splits describe the full 33,989-trial release;
+downloading one package is not sufficient to train on the full split.
+After preparing targets, extract visual features and compute TRAIN-only
+normalization as described in [raw-to-targets.md](docs/raw-to-targets.md).
 
 The training code consumes a **model-ready export**, not the acquisition/source
 package. Its expected layout is:

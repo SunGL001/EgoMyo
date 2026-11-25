@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert delivered EgoMyo trials to model-ready targets (pressure2 by default).
 
-Requires delivered pressure1 and MANO/contact annotations, not just sensor-only
+Requires completed pressure2 and MANO/surface annotations, not just sensor-only
 ADC/matrices. Source files are read-only; output must be a new directory.
 """
 import argparse
@@ -20,9 +20,7 @@ from raw_target_contract import (PRESSURE_REJECT_BITS, REGIONS, causal_emg_windo
                                  sparse_vertex_force, vertex_partition)
 
 REQUIRED = ('trial_info.json', 'ego/ego_timestamps.csv', 'emg/emg_raw.h5',
-            'contact/mano.npz', 'force/pressure_postprocessed.h5',
-            'force/region_force_postprocessed.csv', 'force/pressure_postprocess.json',
-            'contact/contact_postprocessed.h5')
+            'contact/mano.npz')
 
 
 def read_json(path):
@@ -103,14 +101,23 @@ def completed_pressure(trial, member, times, input_valid, mesh_valid, faces, atl
     contact_valid = force_valid.copy()
     contact_labels = np.where(contact_valid, (force > threshold).astype(np.int8), -1)
     state = np.where(contact_valid.all(1), (contact_labels == 1).any(1).astype(np.int8), -1)
-    with h5py.File(trial / 'contact/contact_postprocessed.h5', 'r') as original:
-        atlas_hash = str(original.attrs['atlas_sha256'])
-        original_regions = original['face_region'][:]
     with h5py.File(trial / 'contact/contact_surface_completed.h5', 'r') as surface:
+        original_regions = surface['face_region'][:]
+        atlas_hash = surface.attrs.get('atlas_sha256')
+        original_path = trial / 'contact/contact_postprocessed.h5'
+        if original_path.is_file():
+            with h5py.File(original_path, 'r') as original:
+                if not np.array_equal(original['face_region'][:], original_regions):
+                    raise ValueError('Pressure2 surface atlas mismatch')
+                if atlas_hash is not None and str(atlas_hash) != str(original.attrs['atlas_sha256']):
+                    raise ValueError('Pressure2 surface atlas hash mismatch')
+                atlas_hash = original.attrs['atlas_sha256']
+        if atlas_hash is None:
+            raise ValueError('Pressure2 surface is missing its anatomical atlas hash')
+        atlas_hash = str(atlas_hash)
         if (surface.attrs.get('pressure_version') != 'pressure2' or
                 not np.array_equal(surface['host_monotonic_ns'][:], pressure_times) or
-                not np.array_equal(surface['pressure_quality_flags'][:], all_quality) or
-                not np.array_equal(surface['face_region'][:], original_regions)):
+                not np.array_equal(surface['pressure_quality_flags'][:], all_quality)):
             raise ValueError('Pressure2 surface axis/quality/atlas mismatch')
         canonical_faces = faces if member['side'] == 'R' else faces[:, [0, 2, 1]]
         partition = vertex_partition(canonical_faces, original_regions)
@@ -157,6 +164,11 @@ def prepare_trial(source, member, atlas=None, pressure_version='pressure2', cont
     if pressure_version == 'pressure2':
         required += ('force/pressure_completed.h5', 'force/region_force_completed.csv',
                      'force/pressure_completion.json', 'contact/contact_surface_completed.h5')
+        if (trial / 'contact/contact_postprocessed.h5').is_file():
+            required += ('contact/contact_postprocessed.h5',)
+    elif pressure_version == 'pressure1':
+        required += ('force/pressure_postprocessed.h5', 'force/region_force_postprocessed.csv',
+                     'force/pressure_postprocess.json', 'contact/contact_postprocessed.h5')
     elif pressure_version != 'pressure1':
         raise ValueError('Unknown pressure version')
     if not np.isfinite(contact_threshold) or contact_threshold < 0:
@@ -173,7 +185,7 @@ def prepare_trial(source, member, atlas=None, pressure_version='pressure2', cont
         raise ValueError('Trial/run identity mismatch')
     if member['side'] not in ('L', 'R') or info['subject_id'] != member['package']:
         raise ValueError('Package identity or hand side mismatch')
-    if not member['package'].endswith('-' + member['side']):
+    if not member['package'].upper().endswith('-' + member['side']):
         raise ValueError('Hand side disagrees with package metadata')
     if (info['session_number'] != member['session'] or info['action_index'] != member['action'] or
             info['repetition'] != member['repetition']):

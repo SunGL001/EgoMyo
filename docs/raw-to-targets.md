@@ -5,7 +5,8 @@
 
 `scripts/prepare_targets.py` reads delivered sensor **and annotation** files and
 creates the model-ready layout used by MyoBridge and the baseline recipes.
-**pressure2 is the default.** It uses completed, unsmoothed regional force;
+**pressure2 is the default.** The public 100-hand release contains only pressure2,
+not earlier pressure files. It uses completed, unsmoothed regional force;
 it does not silently substitute pressure1 or apply an additional smoothing pass.
 The arXiv link will be added when available.
 
@@ -32,9 +33,13 @@ Under each row's `relative_path`, the converter requires:
 | `force/pressure_completed.h5` | pressure2 timeline, unsmoothed `force_7_estimated_n`, quality/source-row provenance. Regional-force supervision. |
 | `force/region_force_completed.csv` | Independent completed timeline/regional-force/quality cross-check. |
 | `force/pressure_completion.json` | Completion version and trial/run identity. |
-| `contact/contact_surface_completed.h5` | Completed per-face matrix force, region mapping, spatial-mapping validity, and matching pressure2 timeline. Surface supervision. |
-| `contact/contact_postprocessed.h5` | Original anatomical region partition/hash; also the pressure1 surface source if explicitly selected. |
-| `force/pressure_postprocessed.h5`, `force/region_force_postprocessed.csv`, `force/pressure_postprocess.json` | Original pressure source and provenance; retain these alongside pressure2. The completed H5 can contain a virtual matrix referencing the original H5. |
+| `contact/contact_surface_completed.h5` | Completed per-face force, embedded `atlas_sha256`, face regions, mapping validity and matching pressure2 timeline. Surface supervision. |
+
+The public 100-hand archives contain **pressure2 only**. Their matrix is stored
+as ordinary compressed HDF5 datasets, with no older pressure/contact-force
+dependency. Arrays are compared with the source completed view before packing.
+Older internal layouts remain readable with their historical dependencies;
+those earlier files are not public downloads.
 
 The source root also contains `<package>/DATASET.json`. Raw video is
 `ego/ego.mp4` and is consumed by the visual-feature extraction step, not the
@@ -47,7 +52,7 @@ this tool does not invent those missing annotations or run the acquisition UI.
 ```bash
 python scripts/prepare_targets.py \
   --source-root /data/EgoMyo/raw \
-  --membership /data/EgoMyo/release-membership.json \
+  --membership /data/EgoMyo/release/metadata/membership.json \
   --out /data/EgoMyo/prepared-pressure2 \
   --include-long-emg
 ```
@@ -56,7 +61,8 @@ The output directory must not exist. `--include-long-emg` additionally exports
 `emg_2000` and `input_valid_2000` for NeuroPose, EMGFormer and vemg2pose; MyoBridge
 still uses `emg[18,400]`. Omit it if those baselines are not needed.
 `--pressure-version pressure1` is an explicit optional alternate annotation
-source; it never becomes an automatic fallback for a missing pressure2 file.
+source for older internal datasets, not the public release. It never becomes
+an automatic fallback for a missing pressure2 file.
 
 Outputs: `targets/<trial_id>.npz`, `anatomical_partition.npz`, `membership.json`
 with frame counts, `frame-map.json`, per-trial SHA-256 receipts and coverage in
@@ -100,7 +106,7 @@ delete or move a failed partial output before retrying into a new directory.
   contact requires positive mapped force and a contact-positive owner region.
   Unknown mapping is masked rather than fabricated.
 
-The optional pressure1 branch uses delivered explicit regional/global contact,
+The optional legacy pressure1 branch uses explicit regional/global contact,
 original sparse barycentric mapping and its own pressure-quality semantics.
 `preparation.json` identifies the selected policy; do not mix annotation versions
 within one reported comparison.
@@ -113,8 +119,7 @@ python scripts/extract_wilor_from_video.py --data "$DATA" \
   --frame-map "$DATA/frame-map.json" --wilor-root /opt/WiLoR \
   --checkpoint /assets/wilor_final.ckpt --config /assets/model_config.yaml \
   --detector /assets/detector.pt
-python scripts/make_splits.py --membership "$DATA/membership.json" \
-  --split-seed 0 --out "$DATA/splits.json"
+cp /data/EgoMyo/release/metadata/splits.json "$DATA/splits.json"
 python scripts/compute_normalization.py --data "$DATA" --splits "$DATA/splits.json" \
   --protocol cross_trial --out "$DATA/normalization-cross_trial.json"
 python scripts/validate_dataset.py --data "$DATA" \

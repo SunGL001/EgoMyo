@@ -220,3 +220,42 @@ def test_pressure2_inserted_force_is_usable_and_bad_surface_axis_rejected(tmp_pa
         handle['host_monotonic_ns'][1] += 1
     with pytest.raises(ValueError, match='surface axis'):
         prepare_trial(tmp_path, member)
+
+
+def test_pressure2_only_release_matches_original_layout(tmp_path):
+    member = make_raw_trial(tmp_path)
+    add_pressure2(tmp_path, member)
+    expected, expected_atlas, _, expected_indices = prepare_trial(tmp_path, member)
+    trial = tmp_path / member['relative_path']
+    with h5py.File(trial / 'contact/contact_surface_completed.h5', 'r+') as surface:
+        surface.attrs['atlas_sha256'] = 'synthetic-atlas'
+    for name in ('force/pressure_postprocessed.h5', 'force/region_force_postprocessed.csv',
+                 'force/pressure_postprocess.json', 'contact/contact_postprocessed.h5'):
+        (trial / name).unlink()
+    actual, atlas, receipts, indices = prepare_trial(tmp_path, member)
+    for key in expected:
+        np.testing.assert_array_equal(actual[key], expected[key])
+    for key in expected_atlas:
+        np.testing.assert_array_equal(atlas[key], expected_atlas[key])
+    assert indices == expected_indices
+    assert 'contact/contact_postprocessed.h5' not in receipts
+    with h5py.File(trial / 'contact/contact_surface_completed.h5', 'r+') as surface:
+        del surface.attrs['atlas_sha256']
+    with pytest.raises(ValueError, match='missing its anatomical atlas hash'):
+        prepare_trial(tmp_path, member)
+
+
+def test_lowercase_hand_suffix_retains_exact_package_identity(tmp_path):
+    member = make_raw_trial(tmp_path, side='L')
+    add_pressure2(tmp_path, member)
+    original = tmp_path / member['package']
+    package = member['package'].lower()
+    original.rename(tmp_path / package)
+    member['relative_path'] = member['relative_path'].replace(member['package'], package, 1)
+    member['package'] = package
+    info_path = tmp_path / member['relative_path'] / 'trial_info.json'
+    info = json.loads(info_path.read_text())
+    info['subject_id'] = package
+    info_path.write_text(json.dumps(info))
+    values, _, _, _ = prepare_trial(tmp_path, member)
+    assert values['is_left'].all()
