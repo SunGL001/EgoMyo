@@ -4,6 +4,23 @@ Use this checklist before uploading any dataset file to the Hugging Face
 repository. A valid download link or working training loader does not imply
 permission to publish the underlying recordings or annotations.
 
+## pressure2 and code compatibility
+
+- [ ] Include completed pressure2 H5/CSV/report and completed surface annotations,
+  together with the original pressure H5 referenced by virtual matrix datasets.
+- [ ] Publish the reviewed release membership with stable trial IDs, relative
+  paths, shared participant IDs across hands/sessions, frame counts and checksums.
+- [ ] Run the explicit [raw-to-target conversion](raw-to-targets.md); retain
+  `preparation.json`, per-trial provenance, quality flags and validity masks.
+- [ ] Record the unsmoothed force variant, contact threshold and surface-lifting
+  policy. Derived/completed labels are not measured or calibrated force.
+- [ ] Freeze shared protocol splits and per-protocol TRAIN-only normalization;
+  verify MyoBridge and the [baseline recipes](../baselines/README.md) read them.
+- [ ] Include real 2000-sample causal EMG windows if distributing a model-ready
+  baseline export, or retain the raw files needed to regenerate those windows.
+- [ ] Review exported metadata/paths for private information before publication.
+  Complete the dataset card and release authorization independently of tests.
+
 ## Release authorization and privacy
 
 - [ ] Confirm that every participant's consent explicitly permits the planned

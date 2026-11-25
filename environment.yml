@@ -8,6 +8,7 @@ dependencies:
   - pytorch>=2.6
   - torchvision>=0.20
   - numpy>=1.26
+  - h5py>=3.10
   - huggingface_hub>=0.34
   - pip
   - pip:

@@ -36,7 +36,9 @@ myobridge/
 │   ├── splits.py        cross-trial, cross-session and cross-subject splits
 │   ├── metrics.py       geometry, contact and force metrics
 │   └── utils.py         seeding, checkpointing, partition loading
+├── baselines/            task-adapted comparison models and shared TRAIN/TEST runner
 ├── scripts/
+│   ├── prepare_targets.py         raw EMG/pose/pressure2 → aligned targets
 │   ├── prepare_mano.py            convert an official MANO file to buffers
 │   ├── make_splits.py             freeze the three evaluation splits
 │   ├── compute_normalization.py   TRAIN-only EMG statistics
@@ -182,10 +184,24 @@ each target row and the hand side. The script refuses missing/ambiguous hand
 detections and never uses ground-truth pose to make crops. It writes
 `features/wilor/<trial_id>.npy` plus checkpoint/preprocessing provenance.
 Review [`docs/data-field-mapping.md`](docs/data-field-mapping.md) for the frame
-map schema and synchronization requirements. This produces visual features
-only; it does not convert raw EMG/pose/pressure files into `targets/*.npz`.
-The optional DINOv2 extractor remains crop-based and is not used by the default
-configuration.
+map schema and synchronization requirements. For aligned sensor and annotation
+targets, use [`scripts/prepare_targets.py`](scripts/prepare_targets.py):
+
+```bash
+python scripts/prepare_targets.py --source-root /data/EgoMyo/raw \
+  --membership /data/EgoMyo/release-membership.json \
+  --out /data/EgoMyo/prepared-pressure2 --include-long-emg
+```
+
+**The default annotation source is completed pressure2**, with explicit quality
+masks and derivation provenance; the source recordings remain untouched.
+The output `frame-map.json` can be passed directly to the WiLoR video extractor.
+See [`docs/raw-to-targets.md`](docs/raw-to-targets.md) for required raw files,
+timestamp/EMG rules, contact definitions, surface mapping and the complete
+conversion → feature extraction → TRAIN-only normalization workflow.
+Use the WiLoR extractor's `--export-baseline-crops` to also create detector-only
+RGB/DINO crops, then `scripts/extract_dino_features.py` for the optional DINO
+cache. These extra crops are not required for default MyoBridge training.
 
 ## Splits
 
@@ -268,11 +284,24 @@ python -m pytest tests
 The tests build synthetic MANO buffers of the correct layout, so they exercise
 the full forward path and the objective without the licensed model.
 
+## Baselines
+
+[`baselines/`](baselines/README.md) contains standalone task-adapted comparison
+models and a shared fixed-epoch TRAIN/TEST driver for OpenTouch, EgoTouch,
+EgoTactile, EgoPressure, MoT, HBridge, NeuroPose, EMGFormer, vemg2pose, HaMeR
+and WiLoR. The documentation distinguishes local adaptations/approximations
+from external native components and lists the exact inputs and licensed
+dependencies. All methods consume the same prepared pressure2 targets and
+protocol splits; no GT annotation enters inference. Run
+`python -m baselines.run --help` from this repository root.
+
 ## Scope
 
-Included: environment, split construction, cached-feature loading, the final
-model, training and evaluation. Not included: baseline implementations,
-analysis scripts, dataset files, pretrained WiLoR weights and the MANO model.
+Included: environment, raw-to-target conversion, visual crop/cache extraction,
+split construction, the final model, task-adapted baseline entry points,
+training and evaluation. Not included: private analysis scripts, dataset
+files, external pretrained weights, or licensed MANO assets. External baseline
+sources retain their own licenses and are acquired separately.
 
 ## Paper
 

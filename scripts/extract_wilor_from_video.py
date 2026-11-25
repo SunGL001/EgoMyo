@@ -44,6 +44,8 @@ def main():
                         help='Match official WiLoR demo default')
     parser.add_argument('--batch-size', type=int, default=32)
     parser.add_argument('--overwrite', action='store_true')
+    parser.add_argument('--export-baseline-crops', action='store_true',
+                        help='Also save native RGB batch fields and DINO-ready crops (additional disk space)')
     args = parser.parse_args()
 
     wilor_root = args.wilor_root.resolve()
@@ -79,6 +81,7 @@ def main():
         'feature_shape_per_frame': [13, 1280],
         'pooling': 'adaptive average pool 4x3 spatial tokens + global spatial mean',
         'frame_indices': 'zero-based decoded video frame indices supplied explicitly',
+        'baseline_crops': args.export_baseline_crops,
     }
     trial_rows = {row['trial_id']: row for row in membership['trials']}
     if set(trial_map) != set(trial_rows):
@@ -110,6 +113,7 @@ def main():
 
         maps = []
         crop_batch = []
+        stored_crops = []
         right_class = 1 if spec['side'] == 'R' else 0
         for frame_index in indices:
             capture.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
@@ -135,6 +139,9 @@ def main():
                 rescale_factor=args.rescale_factor,
             )[0]
             crop_batch.append(crop_data['img'])
+            if args.export_baseline_crops:
+                stored_crops.append({name: np.asarray(crop_data[name]) for name in
+                                     ('img', 'right', 'box_center', 'box_size', 'img_size')})
             if len(crop_batch) == args.batch_size:
                 maps.extend(_backbone_features(model, crop_batch, device))
                 crop_batch = []
@@ -156,6 +163,18 @@ def main():
         with temporary.open('wb') as stream:
             np.save(stream, values, allow_pickle=False)
         temporary.replace(destination)
+        if args.export_baseline_crops:
+            crop_root = args.data / 'crops' / trial_id
+            crop_root.mkdir(parents=True, exist_ok=True)
+            fields = {name: np.stack([row[name] for row in stored_crops]) for name in stored_crops[0]}
+            np.savez_compressed(crop_root / 'rgb.npz', **fields)
+            mean = torch.tensor(model_cfg.MODEL.IMAGE_MEAN).reshape(1, 3, 1, 1)
+            std = torch.tensor(model_cfg.MODEL.IMAGE_STD).reshape(1, 3, 1, 1)
+            images = torch.from_numpy(fields['img']).float() * std + mean
+            images = F.interpolate(images, (224, 224), mode='bilinear', align_corners=False)
+            dino_mean = torch.tensor([.485, .456, .406]).reshape(1, 3, 1, 1)
+            dino_std = torch.tensor([.229, .224, .225]).reshape(1, 3, 1, 1)
+            np.save(crop_root / 'dino.npy', ((images - dino_mean) / dino_std).numpy().astype(np.float16))
         print(f'{trial_id}: {values.shape} -> {destination}', flush=True)
 
     (output_root / 'extraction.json').write_text(json.dumps(metadata, indent=2) + '\n')

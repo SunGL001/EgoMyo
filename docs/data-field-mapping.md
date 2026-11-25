@@ -82,15 +82,23 @@ checkpoints, MANO assets and detector are external licensed dependencies and
 are not bundled here. The older `scripts/extract_wilor_tokens.py` remains for
 users who already have RGB crops `[T,3,256,256]` in `[0,1]`; its adapter applies
 the official WiLoR normalization and horizontal 32-pixel trim. DINOv2
-extraction remains crop-based (`[T,3,224,224]`) via
-`scripts/extract_dino_features.py`; this release does not yet provide a raw
-video-to-DINO crop/detection pipeline.
+extraction uses ImageNet-normalized crops (`[T,3,224,224]`) via
+`scripts/extract_dino_features.py`. Add `--export-baseline-crops` to the raw
+WiLoR video extractor to generate those crops using the same detected hand,
+without GT pose/pressure-based cropping.
 
-This is only raw-video-to-visual-cache conversion. The released training
-layout also requires `targets/<trial_id>.npz`, aligned EMG windows, reviewed
-supervision, protocol splits, and training-only normalization. This repository
-does not currently implement a general conversion from the raw acquisition
-HDF5/pose/pressure packages into that complete training target archive.
+The full annotation-aware conversion is provided by
+[`scripts/prepare_targets.py`](../scripts/prepare_targets.py), documented in
+[`raw-to-targets.md`](raw-to-targets.md). It defaults to **completed pressure2**,
+exports aligned EMG/pose/contact/force targets and validity masks, and records
+source checksums and the exact conversion policy. pressure2 regional contact
+is derived from unsmoothed completed regional force >0.2 estimated N; unresolved
+and missing-source rows remain invalid. Surface labels use completed per-face
+force with explicit spatial-mapping validity. Original MANO geometry/validity is
+preserved, not replaced by a completed preview mesh. Imputed force is derived
+supervision, not a raw measurement. Protocol splits and TRAIN-only normalization
+remain separate, explicit steps. See [`../baselines/README.md`](../baselines/README.md)
+for the baseline inputs, including optional causal 2000-sample raw EMG windows.
 
 `membership.json` supplies `trial_id` and `frames` to the loader. The split
 builder additionally uses `participant`, `package`, `session`, `action` and

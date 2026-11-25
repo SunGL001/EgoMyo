@@ -42,6 +42,13 @@ def test_valid_model_ready_dataset(tmp_path):
     assert validate_dataset(tmp_path) == []
 
 
+def test_protocol_specific_normalization_path(tmp_path):
+    make_dataset(tmp_path)
+    specific = tmp_path / 'normalization-cross_trial.json'
+    (tmp_path / 'normalization.json').rename(specific)
+    assert validate_dataset(tmp_path, normalization_path=specific) == []
+
+
 def test_rejects_split_leakage(tmp_path):
     make_dataset(tmp_path)
     split_path = tmp_path / 'splits.json'

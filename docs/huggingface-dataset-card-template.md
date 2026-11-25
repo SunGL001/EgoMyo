@@ -44,8 +44,24 @@ and which are processed/model-ready exports.
 
 For the MyoBridge training-ready export, see the expected layout and tensor
 shapes in the code repository's [README](https://github.com/SunGL001/EgoMyo).
-The training loader does not automatically convert an acquisition/source
-package into that export.
+The training loader does not implicitly preprocess raw files. Use the explicit
+[`prepare_targets.py`](https://github.com/SunGL001/EgoMyo/blob/main/scripts/prepare_targets.py)
+converter and
+[`raw-to-targets.md`](https://github.com/SunGL001/EgoMyo/blob/main/docs/raw-to-targets.md)
+workflow before training. The default is **completed pressure2**: unsmoothed
+completed regional-force estimates, retained insertion/imputation flags,
+derived contact threshold >0.2 estimated N, and masked completed per-face
+surface labels. It does not substitute completed preview geometry for original
+MANO labels. Original source recordings remain intact; estimates must not be
+described as calibrated force measurements. Publish the completion configuration,
+source references, release membership and conversion receipts with the approved
+release. Keep original pressure files beside completed H5 virtual datasets.
+
+The code repository also provides
+[`baselines/`](https://github.com/SunGL001/EgoMyo/tree/main/baselines)
+for task-adapted comparisons using the same prepared targets and split files.
+The data and code link back to this dataset and the
+[project website](https://egomyo.github.io/). The arXiv link remains pending.
 
 Complete the code repository's
 [`data-field-mapping.md`](https://github.com/SunGL001/EgoMyo/blob/main/docs/data-field-mapping.md)

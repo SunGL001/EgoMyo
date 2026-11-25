@@ -15,19 +15,22 @@ TARGET_FIELDS = {
 }
 
 
-def validate_dataset(root, visual='wilor'):
+def validate_dataset(root, visual='wilor', normalization_path=None):
     root = Path(root)
+    normalization_path = Path(normalization_path) if normalization_path else root / 'normalization.json'
     errors = []
-    required_files = ('membership.json', 'normalization.json', 'splits.json')
+    required_files = ('membership.json', 'splits.json')
     for relative_path in required_files:
         if not (root / relative_path).is_file():
             errors.append(f'Missing {relative_path}')
+    if not normalization_path.is_file():
+        errors.append(f'Missing normalization: {normalization_path}')
     if errors:
         return errors
 
     try:
         membership = json.loads((root / 'membership.json').read_text())
-        normalization = json.loads((root / 'normalization.json').read_text())
+        normalization = json.loads(normalization_path.read_text())
         splits = json.loads((root / 'splits.json').read_text())
     except (OSError, json.JSONDecodeError) as error:
         return [f'Cannot read dataset metadata: {error}']
@@ -123,8 +126,9 @@ def main():
     parser.add_argument('--data', type=Path, required=True,
                         help='Downloaded model-ready dataset directory')
     parser.add_argument('--visual', choices=('wilor', 'dino'), default='wilor')
+    parser.add_argument('--normalization', type=Path, help='Protocol-specific TRAIN-only statistics')
     args = parser.parse_args()
-    errors = validate_dataset(args.data, args.visual)
+    errors = validate_dataset(args.data, args.visual, args.normalization)
     if errors:
         print(f'Dataset validation failed with {len(errors)} issue(s):')
         for error in errors[:50]:
