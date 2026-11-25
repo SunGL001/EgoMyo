@@ -1,12 +1,27 @@
-# MyoBridge
+# EgoMyo | MyoBridge
 
-Reference implementation of MyoBridge, a multimodal model that predicts hand
-pose, contact and regional press force from egocentric video and a causal
-18-channel sEMG window. 
+[![Website](https://img.shields.io/badge/Project-Website-2ea44f)](https://egomyo.github.io/)
+[![Dataset](https://img.shields.io/badge/🤗%20Dataset-EgoMyo-yellow)](https://huggingface.co/datasets/long2333/EgoMyo)
+[![Code](https://img.shields.io/badge/Code-SunGL001%2FEgoMyo-181717?logo=github)](https://github.com/SunGL001/EgoMyo)
+[![Paper](https://img.shields.io/badge/arXiv-coming%20soon-lightgrey)](#paper)
 
-This repository contains the environment definition, the split construction,
-the training code and the evaluation code needed to reproduce the main results.
-The dataset is released separately, and so are the licensed MANO and WiLoR weights.
+Reference implementation of **MyoBridge**, a multimodal model that predicts
+hand pose, contact and regional press force from egocentric vision and a causal
+18-channel sEMG window. This repository contains the training-ready model code,
+data-layout checks and evaluation scripts. The EgoMyo dataset is hosted
+separately; licensed MANO and WiLoR weights are not redistributed here.
+
+| Resource | Link |
+| --- | --- |
+| Project website and qualitative results | [egomyo.github.io](https://egomyo.github.io/) |
+| Dataset repository | [🤗 long2333/EgoMyo](https://huggingface.co/datasets/long2333/EgoMyo) |
+| Model code | [SunGL001/EgoMyo](https://github.com/SunGL001/EgoMyo) |
+| Paper | [arXiv link pending](#paper) |
+
+> **Dataset availability:** follow the Hugging Face dataset card for current
+> access, release, and license terms. Do not redistribute recordings or derived
+> annotations unless you have the required participant consent and release
+> authorization.
 
 ## Layout
 
@@ -46,6 +61,59 @@ or
 ```bash
 pip install -r requirements.txt
 ```
+
+## Dataset
+
+The dataset repository and this code repository are separate. Download the
+dataset from the Hugging Face Hub; the helper supports authenticated/gated
+repositories through the Hugging Face CLI login and optional file filters.
+This downloads data only when you run it; cloning this code repository never
+downloads the dataset.
+
+```bash
+pip install -r requirements.txt
+hf auth login
+python scripts/download_dataset.py --local-dir data/egomyo
+python scripts/validate_dataset.py --data data/egomyo --visual wilor
+```
+
+To fetch only selected files from the Hub, repeat `--allow-pattern`:
+
+```bash
+python scripts/download_dataset.py --local-dir data/egomyo \
+  --allow-pattern README.md --allow-pattern membership.json
+```
+
+The training code consumes a **model-ready export**, not the acquisition/source
+package. Its expected layout is:
+
+```text
+data/egomyo/
+├── membership.json
+├── normalization.json
+├── splits.json
+├── features/
+│   ├── wilor/<trial_id>.npy
+│   └── dino/<trial_id>.npy          # optional DINOv2 variant
+└── targets/<trial_id>.npz
+```
+
+`membership.json` records anonymized trial IDs and split metadata;
+`normalization.json` contains TRAIN-only mean/std for 18 EMG channels;
+`splits.json` freezes the three protocols. Each target archive contains aligned
+EMG windows, pose/mesh, regional and vertex contact/force targets, validity
+masks and handedness. The loader expects 400-sample EMG windows, 21 joints,
+778 mesh vertices and seven anatomical regions. The default WiLoR feature is
+`[frames, 13, 1280]`; optional DINOv2 features are `[frames, 34, 768]`.
+
+Run the validator before training; it checks metadata, protocol leakage,
+required per-trial files and feature shapes. A source/acquisition archive must
+first be transformed and reviewed against this documented export schema; do
+not point training scripts at the raw acquisition package. The release
+checklist and an unapproved dataset-card draft are in `docs/`.
+
+Once validated, train as shown below. For reproducibility, record the dataset
+revision/commit shown on the Hugging Face dataset page with each experiment.
 
 Training uses BF16 autocast and MATH SDPA on CUDA. The code also runs on CPU in
 FP32, which is useful for the unit tests but not for full training.
@@ -191,3 +259,8 @@ the full forward path and the objective without the licensed model.
 Included: environment, split construction, cached-feature loading, the final
 model, training and evaluation. Not included: baseline implementations,
 analysis scripts, dataset files, pretrained WiLoR weights and the MANO model.
+
+## Paper
+
+The arXiv preprint link will be added here when available. Until then, use the
+[project website](https://egomyo.github.io/) for project materials and updates.

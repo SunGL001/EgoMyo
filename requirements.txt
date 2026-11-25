@@ -2,3 +2,4 @@ torch>=2.6
 numpy>=1.26
 smplx>=0.1.28
 torchvision>=0.20
+huggingface_hub>=0.34
