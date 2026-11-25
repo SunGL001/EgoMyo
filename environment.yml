@@ -1,0 +1,13 @@
+name: myobridge
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pytorch>=2.6
+  - torchvision>=0.20
+  - numpy>=1.26
+  - pip
+  - pip:
+      - smplx>=0.1.28
