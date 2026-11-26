@@ -1,326 +1,217 @@
 # EgoMyo | MyoBridge
 
+[![Paper](https://img.shields.io/badge/arXiv-2611.34224-b31b1b)](https://arxiv.org/abs/2611.34224)
 [![Website](https://img.shields.io/badge/Project-Website-2ea44f)](https://egomyo.github.io/)
 [![Dataset](https://img.shields.io/badge/🤗%20Dataset-EgoMyo-yellow)](https://huggingface.co/datasets/long2333/EgoMyo)
 [![Code](https://img.shields.io/badge/Code-SunGL001%2FEgoMyo-181717?logo=github)](https://github.com/SunGL001/EgoMyo)
-[![Paper](https://img.shields.io/badge/arXiv-coming%20soon-lightgrey)](#paper)
 
-Reference implementation of **MyoBridge**, a multimodal model that predicts
-hand pose, contact and regional press force from egocentric vision and a causal
-18-channel sEMG window. This repository contains the training-ready model code,
-data-layout checks and evaluation scripts. The EgoMyo dataset is hosted
-separately; licensed MANO and WiLoR weights are not redistributed here.
+Official code for **[EgoMyo: Physical Hand State Estimation from Egocentric
+Video and Wrist Electromyography](https://arxiv.org/abs/2611.34224)**.
 
-| Resource | Link |
-| --- | --- |
-| Project website and qualitative results | [egomyo.github.io](https://egomyo.github.io/) |
-| Dataset repository | [🤗 long2333/EgoMyo](https://huggingface.co/datasets/long2333/EgoMyo) |
-| Model code | [SunGL001/EgoMyo](https://github.com/SunGL001/EgoMyo) |
-| Paper | [arXiv link pending](#paper) |
+**EgoMyo** provides egocentric video, wrist surface electromyography (sEMG),
+and hand pose, contact and force annotations for studying physical hand
+interaction. The public dataset contains **100 hand packages and 33,989 trials**.
 
-> **Dataset availability:** follow the Hugging Face dataset card for current
-> access, release, and license terms. Do not redistribute recordings or derived
-> annotations unless you have the required participant consent and release
-> authorization.
+**MyoBridge** estimates hand pose, contact and force jointly from video and a
+causal 18-channel sEMG window. It fuses the modalities at the hand-region level,
+uses regional gates to control the contribution of sEMG, and distributes
+regional forces over predicted contact vertices. The default implementation
+uses **frozen WiLoR visual features without explicit WiLoR pose/shape priors**.
 
-## Layout
+## What Is Included
 
-```
-myobridge/
-├── myobridge/
-│   ├── mano.py          MANO buffers and native linear blend skinning
-│   ├── components.py    EMG encoder, mixture-of-transformer block, routing, force field
-│   ├── model.py         final MyoBridge architecture and model builder
-│   ├── losses.py        multi-task objective and EMG augmentation
-│   ├── data.py          trial dataset, block sampler, collate function
-│   ├── splits.py        cross-trial, cross-session and cross-subject splits
-│   ├── metrics.py       geometry, contact and force metrics
-│   └── utils.py         seeding, checkpointing, partition loading
-├── baselines/            task-adapted comparison models and shared TRAIN/TEST runner
-├── scripts/
-│   ├── prepare_targets.py         raw EMG/pose/pressure2 → aligned targets
-│   ├── prepare_mano.py            convert an official MANO file to buffers
-│   ├── make_splits.py             freeze the three evaluation splits
-│   ├── compute_normalization.py   TRAIN-only EMG statistics
-│   ├── extract_wilor_tokens.py    cache frozen WiLoR tokens
-│   ├── extract_dino_features.py   optional cached DINOv2 features
-│   ├── train.py                   training driver
-│   ├── evaluate.py                held-out evaluation
-│   └── examples/                  example command lines
-├── third_party/wilor_adapter.py   interface to an official WiLoR checkout
-└── tests/                         model, split and metric tests
-```
+- **MyoBridge:** model, training losses, fixed-epoch training and evaluation.
+- **Data preparation:** dataset download, raw-to-target conversion, video-based
+  visual feature extraction and TRAIN-only EMG normalization.
+- **Baselines:** task-adapted comparison models and a shared training/evaluation
+  interface in [`baselines/`](baselines/README.md).
+- **Documentation:** [input/target definitions](docs/data-field-mapping.md),
+  [end-to-end preparation](docs/raw-to-targets.md), and tests.
 
-## Environment
+Recordings are hosted on [Hugging Face](https://huggingface.co/datasets/long2333/EgoMyo).
+External pretrained weights and licensed MANO assets must be obtained separately.
+
+## Installation
 
 ```bash
+git clone https://github.com/SunGL001/EgoMyo.git
+cd EgoMyo
 conda env create -f environment.yml
 conda activate myobridge
 ```
 
-or
+Alternatively, install the dependencies into an existing compatible environment:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Dataset
-
-The dataset repository and this code repository are separate. Download the
-dataset from the Hugging Face Hub; the helper supports authenticated/gated
-repositories through the Hugging Face CLI login and optional file filters.
-This downloads data only when you run it; cloning this code repository never
-downloads the dataset.
+WiLoR feature extraction additionally requires an official
+[WiLoR checkout](https://github.com/rolpotamkin/WiLoR), its dependencies,
+checkpoint, configuration and hand detector. Obtain the right-hand MANO model
+under its license and convert it once:
 
 ```bash
-pip install -r requirements.txt
-hf auth login
-python scripts/download_dataset.py --local-dir data/egomyo
+python scripts/prepare_mano.py --mano-model /path/to/MANO_RIGHT.pkl \
+  --out assets/mano_buffers.npz
+```
+
+## Data and Model Inputs
+
+| Role | Dataset source | Prepared representation |
+| --- | --- | --- |
+| Visual input | `ego/ego.mp4` and video timestamps | Frozen WiLoR tokens `[frames, 13, 1280]`; optional DINOv2 features `[frames, 34, 768]` |
+| sEMG input | `emg/emg_raw.h5`, raw 18-channel ADC and timestamps | Causal `[18, 400]` windows per frame, normalized using TRAIN only |
+| Pose/mesh supervision | Original `contact/mano.npz` | Wrist-relative 21 joints and 778 vertices in metres, with validity masks |
+| Regional contact/force supervision | Corrected/completed **pressure2** in `force/pressure_completed.h5` | Seven-region force estimates and contact labels derived using a `> 0.2` estimated-N threshold |
+| Surface contact/force supervision | `contact/contact_surface_completed.h5` | Mapped vertex contact/force targets and mapping-validity masks |
+
+**Pose, contact and force labels are supervision, not model inputs.** The default
+model does not receive ground-truth geometry or WiLoR pose/shape predictions.
+Optional completed MANO meshes are for preview, not replacements for original
+pose supervision. Pressure2 retains completion and quality flags; force values
+are estimates, not independently calibrated measurements. See
+[field definitions and masks](docs/data-field-mapping.md).
+
+## Prepare the Dataset
+
+### 1. Download and extract
+
+```bash
+python scripts/download_dataset.py --local-dir data/egomyo-release
 mkdir -p data/egomyo-raw
-for archive in data/egomyo/data/raw/*.tar; do
+for archive in data/egomyo-release/data/raw/*.tar; do
   tar -xf "$archive" -C data/egomyo-raw
 done
-python scripts/prepare_targets.py --source-root data/egomyo-raw \
-  --membership data/egomyo/metadata/membership.json \
-  --out data/egomyo-prepared --include-long-emg
-cp data/egomyo/metadata/splits.json data/egomyo-prepared/splits.json
 ```
 
-To fetch only selected files from the Hub, repeat `--allow-pattern`:
+For a smaller download, repeat `--allow-pattern` to select archives and metadata:
 
 ```bash
-python scripts/download_dataset.py --local-dir data/egomyo \
+python scripts/download_dataset.py --local-dir data/egomyo-release \
   --allow-pattern README.md --allow-pattern 'metadata/*' \
   --allow-pattern 'data/raw/0929-1-L.tar' --allow-pattern release.json
 ```
 
-The public 100-hand release contains **pressure2 only**, in standalone HDF5
-files without older pressure/contact-force dependencies. Check the Hub's
-`release.json` for upload completeness, and verify archive SHA-256 values from
-`metadata/packages/` before extraction. Extract all selected archives into the
-same raw root. Frozen metadata/splits describe the full 33,989-trial release;
-downloading one package is not sufficient to train on the full split.
-After preparing targets, extract visual features and compute TRAIN-only
-normalization as described in [raw-to-targets.md](docs/raw-to-targets.md).
+Available archives and SHA-256 checksums are listed in the dataset's
+[`release.json`](https://huggingface.co/datasets/long2333/EgoMyo/blob/main/release.json)
+and `metadata/packages/`. Verify the checksums before extraction and record the
+dataset revision used. All archives extract into the same raw root. A single
+package is not sufficient to train on the full published split. Only corrected
+**pressure2** is distributed; no older pressure files are needed.
 
-The training code consumes a **model-ready export**, not the acquisition/source
-package. Its expected layout is:
+### 2. Convert recordings and annotations to aligned targets
+
+```bash
+python scripts/prepare_targets.py --source-root data/egomyo-raw \
+  --membership data/egomyo-release/metadata/membership.json \
+  --out data/egomyo-prepared --include-long-emg
+cp data/egomyo-release/metadata/splits.json data/egomyo-prepared/splits.json
+```
+
+The output directory must not already exist. The converter creates aligned
+targets, a video frame map, anatomical region assignments, validity masks and
+preparation receipts. `--include-long-emg` also exports 2000-sample windows for
+long-history baselines; MyoBridge uses the 400-sample windows.
+
+### 3. Extract features and compute normalization
+
+```bash
+DATA=data/egomyo-prepared
+python scripts/extract_wilor_from_video.py --data "$DATA" \
+  --frame-map "$DATA/frame-map.json" --wilor-root /path/to/WiLoR \
+  --checkpoint /path/to/wilor_final.ckpt --config /path/to/model_config.yaml \
+  --detector /path/to/detector.pt
+python scripts/compute_normalization.py --data "$DATA" --splits "$DATA/splits.json" \
+  --protocol cross_trial --out "$DATA/normalization-cross_trial.json"
+python scripts/validate_dataset.py --data "$DATA" \
+  --normalization "$DATA/normalization-cross_trial.json"
+```
+
+Feature extraction uses the detector and video, not ground-truth pose, to
+construct hand crops. The prepared directory contains:
 
 ```text
-data/egomyo/
+egomyo-prepared/
 ├── membership.json
-├── normalization.json
 ├── splits.json
-├── features/
-│   ├── wilor/<trial_id>.npy
-│   └── dino/<trial_id>.npy          # optional DINOv2 variant
+├── anatomical_partition.npz
+├── normalization-cross_trial.json
+├── frame-map.json
+├── features/wilor/<trial_id>.npy
 └── targets/<trial_id>.npz
 ```
 
-`membership.json` records anonymized trial IDs and split metadata;
-`normalization.json` (or a protocol-specific file passed with `--normalization`)
-contains TRAIN-only mean/std for 18 EMG channels;
-`splits.json` freezes the three protocols. Each target archive contains aligned
-EMG windows, pose/mesh, regional and vertex contact/force targets, validity
-masks and handedness. The loader expects 400-sample EMG windows, 21 joints,
-778 mesh vertices and seven anatomical regions. The default WiLoR feature is
-`[frames, 13, 1280]`; optional DINOv2 features are `[frames, 34, 768]`.
+Detailed alignment rules, missing-value handling, pressure2 semantics and
+optional DINOv2 extraction are documented in
+[`docs/raw-to-targets.md`](docs/raw-to-targets.md) and
+[`docs/data-field-mapping.md`](docs/data-field-mapping.md).
 
-Run the validator before training; it checks metadata, protocol leakage,
-required per-trial files and feature shapes. A source/acquisition archive must
-first be transformed and reviewed against this documented export schema; do
-not point training scripts at the raw acquisition package. The release
-checklist and an unapproved dataset-card draft are in `docs/`.
-For the exact input/target field mapping, masks, loss terms and preprocessing,
-see [`docs/data-field-mapping.md`](docs/data-field-mapping.md).
+## Train and Evaluate
 
-Once validated, train as shown below. For reproducibility, record the dataset
-revision/commit shown on the Hugging Face dataset page with each experiment.
-Compute a separate normalization file from each protocol's training partition
-and pass that same file to both training and evaluation. The CLI rejects a
-normalization file whose recorded protocol differs from the requested split.
-
-Training uses BF16 autocast and MATH SDPA on CUDA. The code also runs on CPU in
-FP32, which is useful for the unit tests but not for full training.
-
-The MANO model is licensed and must be obtained from its license holder. Convert
-your official right-hand model file once:
+Train the WiLoR-feature model for 20 epochs:
 
 ```bash
-python scripts/prepare_mano.py --mano-model /path/to/MANO_RIGHT.pkl --out assets/mano_buffers.npz
+DATA=data/egomyo-prepared
+python scripts/train.py --data "$DATA" --splits "$DATA/splits.json" \
+  --protocol cross_trial --normalization "$DATA/normalization-cross_trial.json" \
+  --mano assets/mano_buffers.npz --partition "$DATA/anatomical_partition.npz" \
+  --visual wilor --seed 0 --epochs 20 --batch 256 --block 128 --lr 5e-4 \
+  --out runs/cross_trial_wilor_s0
 ```
 
-The buffer archive is validated on load. The anatomical partition over the 778
-MANO vertices is part of the dataset release and is loaded from
-`anatomical_partition.npz` with a single int64 array `partition` holding region
-ids `-1` (unassigned) or `0..6`.
-
-## Dataset format
-
-The dataset root is expected to contain:
-
-```
-<data>/
-├── membership.json          trial ids and their capture metadata
-├── normalization.json       per-channel EMG mean and standard deviation
-├── features/
-│   ├── wilor/<trial_id>.npy float16 [frames, 13, 1280]
-│   └── dino/<trial_id>.npy  float16 [frames, 34, 768]   (optional)
-├── targets/<trial_id>.npz   frames of supervision
-└── crops/<trial_id>/wilor.npy   RGB crops [frames, 3, 256, 256]  (extraction only)
-```
-
-`membership.json` holds one entry per trial:
-
-```json
-{"trials": [{"trial_id": "...", "package": "p01-R", "participant": "p01",
-             "session": 1, "action": 7, "repetition": 2, "side": "R",
-             "frames": 158}]}
-```
-
-`targets.npz` holds, per frame, `emg` `[18, 400]` raw ADC windows ending at the
-observed frame, root-relative `mesh` `[778, 3]` and `joints` `[21, 3]` in metres,
-`vertex_force` `[778]` and `vertex_contact` `[778]`, `regional_force` `[7]` and
-`regional_contact` `[7]`, `surface_regional_force` `[7]`, and the validity masks
-`mesh_valid`, `joint_valid`, `force_valid`, `contact_valid`, `surface_valid`,
-`distribution_valid`, plus `input_valid` and `is_left`.
-
-If you have the licensed raw videos and the reviewed target-frame mapping, the
-WiLoR cache can be regenerated from MP4 using the official WiLoR detector and
-preprocessing pipeline (external WiLoR code and checkpoints are not included):
+Evaluate the final checkpoint on TEST, using the same normalization:
 
 ```bash
-python scripts/extract_wilor_from_video.py \
-  --data data/egomyo --frame-map /path/to/reviewed-frame-map.json \
-  --wilor-root /path/to/WiLoR --checkpoint /path/to/wilor_final.ckpt \
-  --config /path/to/model_config.yaml --detector /path/to/detector.pt
-```
-
-The frame map explicitly specifies the zero-based video frame corresponding to
-each target row and the hand side. The script refuses missing/ambiguous hand
-detections and never uses ground-truth pose to make crops. It writes
-`features/wilor/<trial_id>.npy` plus checkpoint/preprocessing provenance.
-Review [`docs/data-field-mapping.md`](docs/data-field-mapping.md) for the frame
-map schema and synchronization requirements. For aligned sensor and annotation
-targets, use [`scripts/prepare_targets.py`](scripts/prepare_targets.py):
-
-```bash
-python scripts/prepare_targets.py --source-root /data/EgoMyo/raw \
-  --membership /data/EgoMyo/release-membership.json \
-  --out /data/EgoMyo/prepared-pressure2 --include-long-emg
-```
-
-**The default annotation source is completed pressure2**, with explicit quality
-masks and derivation provenance; the source recordings remain untouched.
-The output `frame-map.json` can be passed directly to the WiLoR video extractor.
-See [`docs/raw-to-targets.md`](docs/raw-to-targets.md) for required raw files,
-timestamp/EMG rules, contact definitions, surface mapping and the complete
-conversion → feature extraction → TRAIN-only normalization workflow.
-Use the WiLoR extractor's `--export-baseline-crops` to also create detector-only
-RGB/DINO crops, then `scripts/extract_dino_features.py` for the optional DINO
-cache. These extra crops are not required for default MyoBridge training.
-
-## Splits
-
-```bash
-python scripts/make_splits.py --membership <data>/membership.json \
-  --split-seed 0 --out <data>/splits.json
-```
-
-The three protocols separate increasing amounts of capture variation.
-
-| Protocol | Train | Test |
-|---|---|---|
-| `cross_trial` | three repetitions of every capture stratum | the other two repetitions |
-| `cross_session` | session 1 | session 2 |
-| `cross_subject` | 70% of participants, both hands and sessions | the remaining participants |
-
-Every ranking uses a salted SHA-256 key over the trial or participant id, so the
-split is reproducible from `membership.json` alone. The splitter rejects
-incomplete repetition strata, overlapping partitions and participant leakage.
-
-Then compute TRAIN-only EMG statistics:
-
-```bash
-python scripts/compute_normalization.py --data <data> --splits <data>/splits.json \
-  --protocol cross_trial --out <data>/normalization.json
-```
-
-## Training
-
-Default configuration, frozen WiLoR tokens with no pose or shape prior:
-
-```bash
-DATA=<data> MANO=assets/mano_buffers.npz PARTITION=<data>/anatomical_partition.npz \
-  bash scripts/examples/train_wilor.sh
-```
-
-or directly
-
-```bash
-python scripts/train.py --data <data> --splits <data>/splits.json \
-  --protocol cross_trial --mano assets/mano_buffers.npz \
-  --partition <data>/anatomical_partition.npz --visual wilor \
-  --seed 0 --epochs 20 --batch 256 --block 128 --lr 5e-4 --out runs/cross_trial_wilor_s0
-```
-
-Optimization uses AdamW with weight decay 0.01, gradient clipping at 5, a
-two-epoch warmup followed by a cosine schedule, and a batch of 256 frames built
-from shuffled 128-frame trial blocks. The DINOv2 variant trains only the
-residual adapter at 5e-5 while the downstream network keeps 5e-4.
-
-Checkpoints store learned weights only. The licensed MANO buffers are read from
-the local model file at every run and are never written into a checkpoint.
-
-## Evaluation
-
-```bash
-python scripts/evaluate.py --data <data> --splits <data>/splits.json \
-  --protocol cross_trial --mano assets/mano_buffers.npz \
-  --partition <data>/anatomical_partition.npz \
+python scripts/evaluate.py --data "$DATA" --splits "$DATA/splits.json" \
+  --protocol cross_trial --normalization "$DATA/normalization-cross_trial.json" \
+  --mano assets/mano_buffers.npz --partition "$DATA/anatomical_partition.npz" \
   --checkpoint runs/cross_trial_wilor_s0/checkpoint.pt --visual wilor --seed 0 \
   --out runs/cross_trial_wilor_s0/test_metrics.json
 ```
 
-Weights come from the final training epoch, without any selection on test
-performance. Reported metrics are root-relative MPJPE and PVE in millimetres,
-region contact macro F1 at a 0.5 threshold, surface contact F1 with a fixed
-5 mm edge-geodesic neighborhood on the rest mesh, and regional and per-vertex
-force MAE in estimated newtons. Force values are model estimates rather than
-calibrated sensor readings.
+Repeat with seeds `0`, `1`, `2`, keeping the data split fixed. Adjust batch size
+and workers to your hardware. CUDA training uses BF16; CPU execution uses FP32.
+Checkpoints contain learned weights, not licensed MANO buffers.
 
-To aggregate several seeds, average within trial first and then across trials,
-and report the sample standard deviation across seeds.
+The public frozen **cross-trial** split contains **13,599 TRAIN / 6,800 validation /
+13,590 TEST trials**. `metadata/splits_final.json` merges TRAIN and validation
+for final refit. Select the configuration on validation before refitting; do
+not use TEST for tuning or normalization. Code also supports cross-session and
+cross-subject protocols, but these require suitable reviewed session/participant
+metadata and their own frozen splits; the supplied public split is cross-trial.
+Compute normalization separately for each protocol or refit training partition.
 
-## Tests
+Metrics include MPJPE/PVE in millimetres, regional and surface contact F1, and
+regional and vertex force MAE in estimated newtons. See
+[`docs/data-field-mapping.md`](docs/data-field-mapping.md) for masks and metric
+definitions. Report means and sample standard deviations across seeds.
+
+## Baselines and Tests
+
+[`baselines/README.md`](baselines/README.md) provides input requirements, external
+dependencies and commands for OpenTouch, EgoTouch, EgoTactile, EgoPressure, MoT,
+HBridge, NeuroPose, EMGFormer, vemg2pose, HaMeR and WiLoR. It identifies which
+implementations are task-adapted comparisons and which use native external
+components. Methods share the prepared targets, split files and metrics.
 
 ```bash
+python -m baselines.run --help
 python -m pytest tests
 ```
 
-The tests build synthetic MANO buffers of the correct layout, so they exercise
-the full forward path and the objective without the licensed model.
+## Citation
 
-## Baselines
+```bibtex
+@article{sun2026egomyo,
+  title={EgoMyo: Physical Hand State Estimation from Egocentric Video and Wrist Electromyography},
+  author={Sun, Guanglong and Zhou, Kanglei and Wang, Ziteng and Wang, Nana and Tan, Hengkai and Liu, Xiaolong and Su, Hang and Zhong, Yi and Zhu, Jun},
+  journal={arXiv preprint arXiv:2611.34224},
+  year={2026},
+  url={https://arxiv.org/abs/2611.34224}
+}
+```
 
-[`baselines/`](baselines/README.md) contains standalone task-adapted comparison
-models and a shared fixed-epoch TRAIN/TEST driver for OpenTouch, EgoTouch,
-EgoTactile, EgoPressure, MoT, HBridge, NeuroPose, EMGFormer, vemg2pose, HaMeR
-and WiLoR. The documentation distinguishes local adaptations/approximations
-from external native components and lists the exact inputs and licensed
-dependencies. All methods consume the same prepared pressure2 targets and
-protocol splits; no GT annotation enters inference. Run
-`python -m baselines.run --help` from this repository root.
-
-## Scope
-
-Included: environment, raw-to-target conversion, visual crop/cache extraction,
-split construction, the final model, task-adapted baseline entry points,
-training and evaluation. Not included: private analysis scripts, dataset
-files, external pretrained weights, or licensed MANO assets. External baseline
-sources retain their own licenses and are acquired separately.
-
-## Paper
-
-The arXiv preprint link will be added here when available. Until then, use the
-[project website](https://egomyo.github.io/) for project materials and updates.
+For dataset details and terms, see the
+[dataset card](https://huggingface.co/datasets/long2333/EgoMyo).
+Questions and bug reports are welcome in [Issues](https://github.com/SunGL001/EgoMyo/issues).
